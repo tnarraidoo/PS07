@@ -1,6 +1,6 @@
 ---
 title: "STAT/MATH 495: Problem Set 07"
-author: "WRITE YOUR NAME(S) HERE"
+author: "Tasheena Narraidoo"
 date: "2017-10-24"
 output:
   html_document:
