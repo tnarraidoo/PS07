@@ -12,7 +12,7 @@ output:
     df_print: kable
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, warning=FALSE}
 knitr::opts_chunk$set(
   echo = TRUE, fig.width=8, fig.height=4.5, message=FALSE, warning = FALSE
   )
@@ -22,12 +22,24 @@ set.seed(76)
 library(tidyverse)
 library(broom)
 library(knitr)
+library(ROCR)
 
-train <- read_csv("data/cs-training.csv") %>% 
-  rename(Id = X1)
-test <- read_csv("data/cs-test.csv") %>% 
-  rename(Id = X1)
-submission <- read_csv("data/sampleEntry.csv")
+# train <- read_csv("data/cs-training.csv") %>% 
+#   rename(Id = X1)
+# test <- read_csv("data/cs-test.csv") %>% 
+#   rename(Id = X1)
+# submission <- read_csv("data/sampleEntry.csv")
+
+train2 <- read_csv("data/cs-training.csv") 
+
+train <- train2 %>% 
+  mutate(Id = X1) %>% 
+  mutate(SeriousDlqin2yrs = as.factor(SeriousDlqin2yrs)) %>% 
+  mutate(serious.distress = SeriousDlqin2yrs)
+
+test <- read_csv("data/cs-test.csv")
+test <- test %>% 
+  mutate(Id = X1) 
 ```
 
 Information on the competition can be found [here](https://www.kaggle.com/c/GiveMeSomeCredit/data).
@@ -36,8 +48,86 @@ Information on the competition can be found [here](https://www.kaggle.com/c/Give
 
 # Collaboration
 
-Please indicate who you collaborated with on this assignment: 
+Please indicate who you collaborated with on this assignment: - 
 
+
+# Exploratory Data Analysis
+
+We want to use the predictor that would best predict whether someone will experience financial distress in the next two years.
+
+For our EDA, we will look at the distribution of each potential predictor variable to get an idea of the avaiable data. We notice that DebtRatio and MonthlyIncome are heavily skewed. So we will use log on these two variables. Since DebtRatio is a fraction, we will use log(x+1).
+
+
+```{r, echo=FALSE, warning=FALSE, eval=FALSE}
+
+#Age
+ggplot(data=train, aes(train$age)) + 
+  geom_histogram(col="red", 
+                 fill="green", 
+                 alpha = .2) + 
+  labs(title="Histogram for Age") +
+  labs(x="Age", y="Count") 
+
+#Monthly Income
+ggplot(data=train, aes(log(train$MonthlyIncome))) + 
+  geom_histogram(col="red", 
+                 fill="green", 
+                 alpha = .2) + 
+  labs(title="Histogram for Monthly Income") +
+  labs(x="Monthly Income", y="Count") 
+
+#DebtRatio
+ggplot(data=train, aes(log1p(train$DebtRatio))) + 
+  geom_histogram(col="red", 
+                 fill="green", 
+                 alpha = .2) + 
+  labs(title="Histogram for Debt Ratio") +
+  labs(x="Debt Ratio", y="Count") 
+```
+
+We next look at the relationship between our financial distress response variable with each potential variable. 1 indicates that the individual will be in finacial distress.
+
+For Age distribution of financial situation of people, we see that younger people are more likely to be in serious financial distress within two years as compared to older people. This is what we would expect this older people are more likely to be financially stable and know how to manage their money.
+
+The distribution of people in financial distress based on monthly income seem to be normal. Those in the middle bracket of our data are more likely to find themselves in financial distress. Those with lower income sometimes are not eligible for credit payments and those with higher income can cover their debt.
+
+The data for Debt Ratio is still heavily skewed after log transform. We see that most data points are concentrated near 0. 
+
+```{r, echo=FALSE}
+# response variable against potential predictor variables
+
+#age
+ggplot(data = train) +
+  geom_histogram(aes(x = age, fill = serious.distress)) +
+  ggtitle("Age distribution of financial situation of people") 
+  
+
+#monthly income
+ggplot(data = train) +
+  geom_histogram(aes(x = log(MonthlyIncome), fill = serious.distress)) +
+  ggtitle("Monthly Income distribution of financial situation of people") 
+
+#Debt Ratio
+ggplot(data = train) +
+  geom_histogram(aes(x = log1p(DebtRatio), fill = serious.distress)) +
+  ggtitle("Debt Ratio distribution of financial situation of people") +
+  xlab("log(Debt Ratio + 1)")
+```
+
+We next plot boxplots.
+
+We see that the distributions of Monthly Income for each group (those who will be in financial difficulty and those who won't) are similar with the median, upper quartiles and lower quartiles having nearly the same value. The same can be said for the Debt Ratio boxplots. However, the difference in distribution for `Age` is more pronounced.
+
+```{r, echo=FALSE}
+# Montly Income
+ggplot(data = train, aes(x=serious.distress, y=log(MonthlyIncome))) + geom_boxplot() + aes(colour=serious.distress)+ labs(title="Monthly Income distribution of financial situation of people")
+
+# Debt Ratio
+ggplot(data = train, aes(x=serious.distress, y=log1p(DebtRatio))) + geom_boxplot() + aes(colour=serious.distress)+ labs(title="Debt Ratio distribution of financial situation of people")
+
+# Age
+ggplot(data = train, aes(x=serious.distress, y=age)) + geom_boxplot() + aes(colour=serious.distress)+ labs(title="Age distribution of financial situation of people")
+```
 
 
 # Build binary classifier
@@ -45,8 +135,35 @@ Please indicate who you collaborated with on this assignment:
 Build the binary classifier based on a single predictor variable: `DebtRatio`,
 `age`, or `MonthlyIncome`. Justify this choice.
 
-```{r}
+From the EDA, we eliminate `DebtRatio` and `MonthlyIncome` because from the boxplots we see that it would be hard two differentiate between the to categories. For `age` the boxplots had more visible differences. Hence, we will use `age` as our predictor variable.
 
+```{r, eval=FALSE, include=FALSE}
+m2 <- glm(serious.distress ~ MonthlyIncome + DebtRatio + age, data = train, family = binomial)
+
+kable(summary(m2)$coeff)
+```
+
+
+ `age` would be a good predictor variable as we would expect the age of people to affect financial judgement ability of people, with younger people still learning how to make good financial choices.
+
+
+```{r}
+# fit on train data
+m1 <- glm(serious.distress ~ age, data=train, family = binomial)
+```
+
+```{r, echo=FALSE, warning=FALSE}
+
+# make prediction on train data
+test$pred1 <- predict(m1, test, type = "response") 
+
+# Prepare Kaggle submission
+df1 <- test %>% 
+  mutate(Probability = pred1) %>% 
+  select(Id, Probability)
+
+# Create Kaggle submission
+write.csv(df1, "submission.csv", row.names=FALSE)
 ```
 
 
@@ -55,7 +172,18 @@ Build the binary classifier based on a single predictor variable: `DebtRatio`,
 
 Based on the ultimate classifier you choose, plot a corresponding ROC curve.
 
-```{r}
+```{r, echo=FALSE}
+train$pred1 <- predict(m1, train, type = "response") 
+train$labels <- train$SeriousDlqin2yrs
+
+# Compute ROC curve
+pred <- prediction(train$pred1, train$labels)
+perf <- performance(pred, measure = "tpr", x.measure = "fpr") 
+
+# ROC curve
+auc <- as.numeric(performance(pred,"auc")@y.values)
+plot(perf, main=paste("Area Under the Curve =", round(auc, 3)))
+abline(c(0, 1), lty=2)
 
 ```
 
@@ -66,6 +194,15 @@ Based on the ultimate classifier you choose, plot a corresponding ROC curve.
 Instead of using any predictor information as you did above, switch your
 predictions to random guesses and plot the resulting ROC curve.
 
-```{r}
+```{r, echo=FALSE}
+guess <- sample(0:1, nrow(train), replace = T)
 
+# Compute ROC curve
+pred <- prediction(guess,train$labels)
+perf <- performance(pred, "tpr","fpr")
+
+# ROC curve
+auc <- as.numeric(performance(pred,"auc")@y.values)
+plot(perf, main=paste("Area Under the Curve =", round(auc, 3)))
+abline(c(0, 1), lty=2)
 ```
